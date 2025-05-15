@@ -180,6 +180,83 @@ The application is accessed via the Nginx reverse proxy:
 
 HTTPS is expected to be handled by an external service like Cloudflare Tunnels, which would terminate SSL and forward traffic to Nginx on port 80. Your BTCPayServer webhook should be configured to point to the HTTPS URL provided by Cloudflare Tunnels.
 
+## Exposing the Application with Cloudflare Tunnel
+
+Cloudflare Tunnel provides a secure way to expose your locally running application to the internet without opening firewall ports. It establishes an outbound-only connection to Cloudflare's network.
+
+### Prerequisites
+
+*   A Cloudflare account.
+*   Your domain added to Cloudflare.
+*   `cloudflared` daemon installed on the server where your Docker application is running. Installation instructions can be found on the [Cloudflare developers website](https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/install-and-setup/installation/).
+
+### Setup Steps
+
+1.  **Login to Cloudflare:**
+    Open a terminal on your server and authenticate `cloudflared` with your Cloudflare account:
+    ```bash
+    cloudflared login
+    ```
+    This will open a browser window asking you to log in and authorize the domain you want to use.
+
+2.  **Create a Tunnel:**
+    Create a tunnel for your application. Replace `<your-tunnel-name>` with a descriptive name (e.g., `btcpay-app-tunnel`).
+    ```bash
+    cloudflared tunnel create <your-tunnel-name>
+    ```
+    This command will output a tunnel ID and create a credentials file (e.g., `~/.cloudflared/<TUNNEL-ID>.json` or `/root/.cloudflared/<TUNNEL-ID>.json`). Note down the tunnel ID.
+
+3.  **Configure DNS:**
+    In your Cloudflare dashboard, navigate to your domain's DNS settings. Create a `CNAME` record:
+    *   **Type**: `CNAME`
+    *   **Name**: The subdomain you want to use (e.g., `btcpaytracker` for `btcpaytracker.yourdomain.com`).
+    *   **Target**: Your tunnel's hostname, which is `<TUNNEL-ID>.cfargotunnel.com`. Replace `<TUNNEL-ID>` with the ID from the previous step.
+    *   **Proxy status**: Ensure it's set to "Proxied" (orange cloud).
+
+4.  **Create a Configuration File (for running as a service):**
+    To run `cloudflared` as a service, create a configuration file. On Linux, this is typically at `/etc/cloudflared/config.yml`.
+    You'll need root/sudo privileges to create and edit this file.
+
+    ```yaml
+    # /etc/cloudflared/config.yml
+
+    tunnel: <your-tunnel-name> # Or use the Tunnel ID directly
+    credentials-file: /root/.cloudflared/<TUNNEL-ID>.json # Adjust path if you ran 'create' as non-root
+
+    ingress:
+      # Rule for your application. This points to your Nginx container.
+      - hostname: your-chosen-cname.yourdomain.com # e.g., btcpaytracker.yourdomain.com
+        service: http://localhost:80 # Nginx listens on port 80
+      # Catch-all rule to return 404 for unconfigured hostnames
+      - service: http_status:404
+    ```
+    **Important:**
+    *   Replace `<your-tunnel-name>` with the name you chose (or use the Tunnel ID directly with `tunnel: <TUNNEL-ID>`).
+    *   Replace `<TUNNEL-ID>.json` with your actual tunnel ID.
+    *   The `credentials-file` path should point to the `.json` file generated when you created the tunnel. If you ran `cloudflared tunnel create` as a non-root user, it might be in that user's home directory (e.g., `/home/youruser/.cloudflared/<TUNNEL-ID>.json`). The service usually runs as `cloudflared` or a similar user, so ensure this user can read the credentials file, or move the file to `/etc/cloudflared/` and update the path.
+    *   Replace `your-chosen-cname.yourdomain.com` with the actual public hostname you configured in Cloudflare DNS.
+
+5.  **Install and Run `cloudflared` as a Service (Linux/Debian):**
+    If you haven't already, stop any manually running `cloudflared tunnel run` processes.
+    ```bash
+    sudo cloudflared service install
+    sudo systemctl enable cloudflared
+    sudo systemctl start cloudflared
+    ```
+
+6.  **Verify the Service:**
+    Check the status of the service:
+    ```bash
+    sudo systemctl status cloudflared
+    ```
+    View logs (especially if troubleshooting):
+    ```bash
+    sudo journalctl -u cloudflared -f
+    ```
+
+7.  **Update BTCPayServer Webhook:**
+    Once your application is accessible via the Cloudflare Tunnel URL (e.g., `https://your-chosen-cname.yourdomain.com`), update your BTCPayServer webhook configuration to point to this new HTTPS URL, specifically the webhook endpoint: `https://your-chosen-cname.yourdomain.com/api/webhooks/btcpay/events`.
+
 ## Stopping the Services
 
 *   To stop all services:
