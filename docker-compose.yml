@@ -28,13 +28,17 @@ services:
       - REPLICA_DATABASE_HOST=postgres_replica
       - BTCPAY_WEBHOOK_SECRET=${BTCPAY_WEBHOOK_SECRET}
       - SECRET_KEY_BASE=${SECRET_KEY_BASE}
-    # The 'app' service depends on 'postgres_primary' to ensure the database
-    # is started before the application attempts to connect.
+    # The 'app' service depends on 'postgres_primary' and 'postgres_replica'
+    # to ensure the databases are healthy before the application attempts to connect.
     depends_on:
-      - postgres_primary # Reverted from healthcheck
+      postgres_primary:
+        condition: service_healthy
+      postgres_replica:
+        condition: service_healthy
     # The command to start the Phoenix server will be added in Step 1.2 after project initialization.
     # e.g., command: mix phx.server
     command: sh -c "mix ecto.setup && mix phx.server"
+    restart: unless-stopped # Added for app service consistency
 
   nginx: # New Nginx service
     image: nginx:latest
@@ -43,7 +47,8 @@ services:
     volumes:
       - ./docker/nginx/conf.d/default.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
-      - app
+      app:
+        condition: service_started # Nginx can start once app container starts
     restart: unless-stopped
 
   postgres_primary:
@@ -56,7 +61,7 @@ services:
       # Persist PostgreSQL data using a named volume.
       - pgdata_primary:/var/lib/postgresql/data
       # Mount custom PostgreSQL configuration files
-      - ./docker/postgres/primary/postgresql.conf:/usr/share/postgresql/postgresql.conf.sample 
+      - ./docker/postgres/primary/postgresql.conf:/usr/share/postgresql/postgresql.conf.sample
       - ./docker/postgres/primary/pg_hba.conf:/usr/share/postgresql/pg_hba.conf.sample
     command: ["postgres", "-c", "config_file=/usr/share/postgresql/postgresql.conf.sample", "-c", "hba_file=/usr/share/postgresql/pg_hba.conf.sample"]
     environment:
@@ -65,8 +70,13 @@ services:
       - POSTGRES_DB=${PRIMARY_DB_NAME}
       - POSTGRES_REPLICATION_USER=${POSTGRES_REPLICATION_USER}
       - POSTGRES_REPLICATION_PASSWORD=${POSTGRES_REPLICATION_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PRIMARY_DB_USER:-postgres} -d ${PRIMARY_DB_NAME:-btcpay_tracker_dev}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     restart: unless-stopped
-    # Removed healthcheck
 
   postgres_replica:
     image: postgres:15 # Using PostgreSQL version 15
@@ -86,32 +96,40 @@ services:
       - PGHOST=postgres_primary # Host to connect for pg_basebackup
       - PGPORT=5432
       # Dummy values, as the data dir will be wiped and populated by pg_basebackup
-      - POSTGRES_USER=dummy_user 
+      - POSTGRES_USER=dummy_user # This is not the connecting user for healthcheck
       - POSTGRES_PASSWORD=dummy_password
       - POSTGRES_DB=dummy_db
+      # Environment variables for the healthcheck (using primary's credentials as they should be replicated)
+      - HEALTHCHECK_DB_USER=${PRIMARY_DB_USER}
+      - HEALTHCHECK_DB_NAME=${PRIMARY_DB_NAME}
     depends_on:
       postgres_primary:
-        condition: service_started # Wait for primary to start, not necessarily healthy
+        condition: service_healthy # Replica setup depends on primary being healthy
     command: >
       sh -c "
-        if [ ! -d /var/lib/postgresql/data ]; then mkdir -p /var/lib/postgresql/data; fi && \\
-        chown -R postgres:postgres /var/lib/postgresql /var/lib/postgresql/data && \\
-        chmod 700 /var/lib/postgresql/data && \\
-        rm -rf /var/lib/postgresql/data/* && \\
-        echo 'Waiting for primary to be ready...' && \\
-        until gosu postgres pg_isready -h postgres_primary -p 5432 -U ${POSTGRES_REPLICATION_USER:-replicator}; do \\
-          sleep 1; \\
-        done; \\
-        echo 'Primary is ready. Running pg_basebackup...' && \\
-        gosu postgres pg_basebackup -h postgres_primary -p 5432 -U ${POSTGRES_REPLICATION_USER:-replicator} -D /var/lib/postgresql/data -Fp -Xs -P -R -S replication_slot_slave1 && \\
-        echo 'Base backup complete. Verifying ownership and permissions...' && \\
-        gosu postgres ls -ld /var/lib/postgresql/data && \\
-        gosu postgres find /var/lib/postgresql/data -maxdepth 1 -ls && \\
-        echo 'Starting replica...' && \\
+        if [ ! -d /var/lib/postgresql/data ]; then mkdir -p /var/lib/postgresql/data; fi && \
+        chown -R postgres:postgres /var/lib/postgresql /var/lib/postgresql/data && \
+        chmod 700 /var/lib/postgresql/data && \
+        rm -rf /var/lib/postgresql/data/* && \
+        echo 'Waiting for primary to be ready for replica setup...' && \
+        until gosu postgres pg_isready -h postgres_primary -p 5432 -U ${POSTGRES_REPLICATION_USER:-replicator}; do \
+          sleep 1; \
+        done; \
+        echo 'Primary is ready. Running pg_basebackup for replica...' && \
+        gosu postgres pg_basebackup -h postgres_primary -p 5432 -U ${POSTGRES_REPLICATION_USER:-replicator} -D /var/lib/postgresql/data -Fp -Xs -P -R -S replication_slot_slave1 && \
+        echo 'Base backup complete for replica. Verifying ownership and permissions...' && \
+        gosu postgres ls -ld /var/lib/postgresql/data && \
+        gosu postgres find /var/lib/postgresql/data -maxdepth 1 -ls && \
+        echo 'Starting replica PostgreSQL instance...' && \
         exec gosu postgres postgres -D /var/lib/postgresql/data -c config_file=/usr/share/postgresql/postgresql.conf.sample
       "
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${HEALTHCHECK_DB_USER:-postgres} -d ${HEALTHCHECK_DB_NAME:-btcpay_tracker_dev} -h localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s # Replica might take longer to initialize after base backup
     restart: unless-stopped
-    # Removed custom command for replication setup
 
 # Named volumes for data persistence.
 volumes:
