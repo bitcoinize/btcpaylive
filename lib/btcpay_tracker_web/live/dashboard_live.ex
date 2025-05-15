@@ -90,6 +90,7 @@ defmodule BtcpayTrackerWeb.DashboardLive do
                   <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Crypto Amount</th>
                   <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Payment Method</th>
                   <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Received At</th>
+                  <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Order Link</th>
                 </tr>
               </thead>
               <tbody class="bg-white divide-y divide-gray-200">
@@ -107,6 +108,19 @@ defmodule BtcpayTrackerWeb.DashboardLive do
                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       <%= if tx.received_at do %>
                         <%= Timex.format!(tx.received_at, "{YYYY}-{0M}-{0D} {h24}:{m}:{s}") %>
+                      <% else %>
+                        N/A
+                      <% end %>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      <%=
+                        # Use get_in to safely access nested :metadata -> "orderUrl"
+                        order_url = get_in(tx.raw_payload_created, ["metadata", "orderUrl"])
+                        if order_url do
+                      %>
+                        <a href={order_url} target="_blank" class="text-indigo-600 hover:text-indigo-900 font-medium py-1 px-3 rounded-md bg-indigo-100 hover:bg-indigo-200 transition-colors duration-150 ease-in-out">
+                          View Order
+                        </a>
                       <% else %>
                         N/A
                       <% end %>
