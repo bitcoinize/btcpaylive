@@ -1,0 +1,39 @@
+To-Do List: World Record Transaction Tracker
+1. Set up the BTCPayServer for the merchant.
+2. Enable the notification system inside BTCPayServer.
+o Configure it to send transaction data whenever a payment is completed.
+3. Connect the notification system to a spreadsheet database.
+o Each settled transaction must be recorded automatically and in human-
+readable format.
+4. Ensure the spreadsheet contains all important transaction details:
+o Date and time
+o Transaction amount (BTC and fiat)
+o Payment method (on-chain, NFC card, QR code)
+o Transaction ID
+o (Optional) Merchant name or location
+5. Set up a real-time dashboard display using the spreadsheet data, showing:
+o Countdown to the end of the record attempt
+o Total number of transactions
+o Total value received
+o Average transaction amount
+o Percentage breakdown by transaction type
+6. Brief the participating merchants in advance.
+o Let them know that a Guinness auditor may approach them during the
+event
+o Merchants must be ready to provide a printed or handwritten receipt
+upon request for specific transactions
+7. Begin the world record attempt.
+o Monitor the system and ensure data is being tracked and updated in real
+time
+8. The Guinness auditor will collect paper receipts manually by:
+o Selecting random transactions from the dashboard or spreadsheet
+o Asking the corresponding merchant to provide a receipt for those
+transactions
+o Comparing the physical receipt with the digital record for verification
+9. After the event, back up the full dataset and export the spreadsheet for final
+review.
+10. Submit all required documentation to Guinness World Records, including:
+• Spreadsheet log of all transactions
+• Screenshots or recordings of the live dashboard
+• Collected paper receipts
+• Auditor's verification notes
